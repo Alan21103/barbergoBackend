@@ -82,7 +82,6 @@ Route::middleware(['auth:api', 'role:pelanggan'])->group(function () {
 
     // Menampilkan pembayaran berdasarkan ID
     Route::get('pelanggan/pembayaran/{id}', [PembayaranController::class, 'show']);
-    Route::get('pelanggan/pembayarans', [PembayaranController::class, 'getPembayaranByPelanggan']);
 });
 
 Route::middleware(['auth:api', 'role:pelanggan'])->group(function () {
@@ -100,6 +99,8 @@ Route::middleware(['auth:api', 'role:admin'])->group(function () {
 
     // Menghapus pembayaran
     Route::delete('admin/pembayaran/{id}', [PembayaranController::class, 'destroy']);
+    Route::put('admin/pembayaran/status/{id}', [PembayaranController::class, 'updateStatus']);
+    
 });
 
 Route::middleware(['auth:api', 'role:admin'])->group(function () {
@@ -138,38 +139,55 @@ Route::middleware(['auth:api'])->group(function () {
 });
 
 
-// Route untuk review
 Route::middleware(['auth:api', 'role:pelanggan'])->group(function () {
-    // Membuat review baru
-    Route::post('pelanggan/review', [ReviewController::class, 'store']);
+    // Membuat review baru untuk pemesanan tertentu
+    // pemesananId akan datang dari parameter URL
+    Route::post('pelanggan/pemesanan/{pemesananId}/reviews', [ReviewController::class, 'store'])->name('pelanggan.reviews.store');
 
-    // Menampilkan review berdasarkan ID
-    Route::get('pelanggan/review/{id}', [ReviewController::class, 'show']);
+    // Menampilkan review berdasarkan ID (review ID)
+    Route::get('pelanggan/reviews/{id}', [ReviewController::class, 'show'])->name('pelanggan.reviews.show');
 
-    // Memperbarui review
-    Route::put('pelanggan/review/{id}', [ReviewController::class, 'update']);
+    // Memperbarui review berdasarkan ID (review ID)
+    Route::put('pelanggan/reviews/{id}', [ReviewController::class, 'update'])->name('pelanggan.reviews.update');
 
-    // Menghapus review
-    Route::delete('pelanggan/review/{id}', [ReviewController::class, 'destroy']);
+    // Menghapus review berdasarkan ID (review ID)
+    Route::delete('pelanggan/reviews/{id}', [ReviewController::class, 'destroy'])->name('pelanggan.reviews.destroy');
 });
 
 Route::get('/reviews', [ReviewController::class, 'getAllReviews']);
 
 Route::middleware(['auth:api', 'role:admin'])->group(function () {
-    // Membuat portofolio baru
-    Route::post('admin/portofolios', [PortfolioController::class, 'store']);
+    // Menampilkan portofolio berdasarkan ID (admin dapat melihat portofolio apapun)
+    Route::get('admin/portofolios/{id}', [PortfolioController::class, 'show'])->name('admin.portofolios.show');
 
-    // Menampilkan portofolio berdasarkan ID
-    Route::get('admin/portofolios/{id}', [PortfolioController::class, 'show']);
+    // Memperbarui portofolio (admin dapat memperbarui portofolionya sendiri dengan logika controller saat ini)
+    Route::put('admin/portofolios/{id}', [PortfolioController::class, 'update'])->name('admin.portofolios.update');
 
-    // Memperbarui portofolio
-    Route::put('admin/portofolios/{id}', [PortfolioController::class, 'update']);
-
-    // Menghapus portofolio
-    Route::delete('admin/portofolios/{id}', [PortfolioController::class, 'destroy']);
+    // Menghapus portofolio (admin dapat menghapus portofolionya sendiri dengan logika controller saat ini)
+    Route::delete('admin/portofolios/{id}', [PortfolioController::class, 'destroy'])->name('admin.portofolios.destroy');
 });
 
-Route::middleware('auth:api')->get('portofolios', [PortfolioController::class, 'index']);
+// Rute untuk pengguna terautentikasi (barber dapat mengelola portofolio mereka sendiri)
+Route::middleware(['auth:api'])->group(function () {
+    // Menampilkan semua portofolio (dapat diakses umum oleh authenticated user)
+    Route::get('portofolios', [PortfolioController::class, 'index'])->name('portofolios.index');
+
+    // Menampilkan portofolio milik barber yang sedang login
+    Route::get('my-portofolios', [PortfolioController::class, 'getMyPortfolios'])->name('my.portofolios.index');
+
+    // Menambahkan portofolio baru untuk barber yang sedang login
+    // Ini memanggil store yang menggunakan Auth::id() untuk barber_id
+    Route::post('my-portofolios', [PortfolioController::class, 'store'])->name('my.portofolios.store');
+
+    // Memperbarui portofolio tertentu untuk barber yang sedang login
+    // Ini memanggil metode update yang menggunakan Auth::id() untuk pemeriksaan kepemilikan barber_id
+    Route::put('my-portofolios/{id}', [PortfolioController::class, 'update'])->name('my.portofolios.update');
+
+    // Menghapus portofolio tertentu untuk barber yang sedang login
+    // Ini memanggil metode destroy yang menggunakan Auth::id() untuk pemeriksaan kepemilikan barber_id
+    Route::delete('my-portofolios/{id}', [PortfolioController::class, 'destroy'])->name('my.portofolios.destroy');
+});
+
 
 
 Route::middleware(['auth:api', 'role:pelanggan'])->group(function () {

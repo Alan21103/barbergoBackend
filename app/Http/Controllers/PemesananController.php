@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Pemesanan;
 use App\Models\User;
 use App\Models\Service; // Pastikan model Service diimpor
-use App\Models\Admin;   // Pastikan model Admin diimpor
+use App\Models\Admin;   // Pastikan model Admin diimpor (untuk barber/admin profile)
 use App\Services\GoogleDistanceService; // Pastikan Service ini ada dan berfungsi
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -50,7 +50,22 @@ class PemesananController extends Controller
             ], 401);
         }
 
-        $pelangganId = Auth::id(); // Ambil ID pengguna yang sedang login (pelanggan)
+        $user = Auth::user();
+        // --- PERBAIKAN PENTING DI SINI ---
+        // Dapatkan objek pelanggan yang terkait dengan user yang login
+        $pelanggan = $user->pelanggan; // Asumsi relasi 'pelanggan' sudah didefinisikan di model User
+
+        if (!$pelanggan) {
+            Log::warning('PemesananController@store: Authenticated user has no associated customer profile. User ID: ' . $user->id);
+            return response()->json([
+                'status_code' => 400,
+                'message' => 'Profil pelanggan tidak ditemukan untuk pengguna ini. Mohon lengkapi profil Anda.',
+            ], 400);
+        }
+        // $pelangganId sekarang akan berisi ID dari tabel 'pelanggan' (misal: 2), bukan 'users.id' (misal: 7)
+        $pelangganId = $pelanggan->id; 
+        Log::info('PemesananController@store: Pelanggan ID yang akan digunakan: ' . $pelangganId);
+        // --- AKHIR PERBAIKAN PENTING ---
 
         $validator = Validator::make($request->all(), [
             'admin_id' => 'required|exists:admin,id', // Validasi admin_id sebagai PK dari tabel 'admin'
@@ -72,7 +87,7 @@ class PemesananController extends Controller
 
         try {
             // Temukan Admin Profile berdasarkan ID yang diterima dari request
-            $adminProfile = Admin::find($request->admin_id); 
+            $adminProfile = Admin::find($request->admin_id);
 
             if (!$adminProfile) {
                 Log::warning('PemesananController@store: Admin profile not found with ID: ' . $request->admin_id);
@@ -83,8 +98,8 @@ class PemesananController extends Controller
             }
 
             // Sekarang kita punya adminProfile, ambil user_id-nya untuk mencari User
-            $barberUser = User::find($adminProfile->user_id); 
-            
+            $barberUser = User::find($adminProfile->user_id);
+
             Log::info('PemesananController@store: Admin ID from request: ' . $request->admin_id);
             Log::info('PemesananController@store: Found Admin Profile User ID: ' . $adminProfile->user_id);
             Log::info('PemesananController@store: Barber User object found: ' . ($barberUser ? 'Yes' : 'No'));
@@ -136,7 +151,7 @@ class PemesananController extends Controller
             Log::info('PemesananController@store: Total price (service + ongkir): ' . $totalPrice);
 
             $pemesanan = Pemesanan::create([
-                'pelanggan_id' => $pelangganId, // Gunakan ID pelanggan yang login
+                'pelanggan_id' => $pelangganId, // *** SUDAH DIPERBAIKI: Gunakan ID dari objek pelanggan ***
                 'barber_id' => $barberUser->id, // barber_id di tabel pemesanan akan menyimpan users.id dari barber
                 'service_id' => $request->service_id,
                 'scheduled_time' => $request->scheduled_time,
@@ -189,12 +204,27 @@ class PemesananController extends Controller
                 ], 500);
             }
 
+            // --- PERBAIKAN PENTING DI SINI ---
+            // Dapatkan objek pelanggan yang terkait dengan user yang login
+            $pelanggan = $user->pelanggan; // Asumsi relasi 'pelanggan' sudah didefinisikan di model User
+
+            if (!$pelanggan) {
+                Log::warning('index (getPemesananByPelanggan): Authenticated user has no associated customer profile. User ID: ' . $user->id);
+                return response()->json([
+                    'status_code' => 400,
+                    'message' => 'Profil pelanggan tidak ditemukan untuk pengguna ini.',
+                ], 400);
+            }
+            $pelangganIdFilter = $pelanggan->id;
+            Log::info('index (getPemesananByPelanggan): Pelanggan ID yang akan digunakan untuk filter: ' . $pelangganIdFilter);
+            // --- AKHIR PERBAIKAN PENTING ---
+
             Log::info('index (getPemesananByPelanggan): Authenticated User ID: ' . $user->id);
 
             // Eager load service, barber, dan admin (jika admin_id berbeda dari barber_id)
             $pemesanan = Pemesanan::with('service', 'barber', 'admin') // Menambahkan 'admin' jika diperlukan
-                                ->where('pelanggan_id', $user->id)
-                                ->get();
+                ->where('pelanggan_id', $pelangganIdFilter) // *** SUDAH DIPERBAIKI: Gunakan ID dari objek pelanggan ***
+                ->get();
 
             Log::info('index (getPemesananByPelanggan): Retrieved Pemesanan Count: ' . $pemesanan->count());
             Log::info('index (getPemesananByPelanggan): Retrieved Pemesanan Data: ' . $pemesanan->toJson());
@@ -218,7 +248,7 @@ class PemesananController extends Controller
             ], 500);
         }
     }
-    
+
     /**
      * Menampilkan daftar pemesanan untuk pelanggan yang sedang login (alias untuk index).
      * Metode ini kemungkinan tidak diperlukan jika 'index' sudah melayani tujuan ini.
@@ -265,7 +295,7 @@ class PemesananController extends Controller
         $validator = Validator::make($request->all(), [
             'service_id' => 'nullable|exists:services,id',
             'scheduled_time' => 'nullable|date',
-            'status' => 'nullable|in:pending,in_progress,completed,cancelled',
+            'status' => 'nullable|in:pending,in_progress,completed,cancelled,paid', // Tambahkan 'paid'
             'alamat' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
@@ -286,7 +316,13 @@ class PemesananController extends Controller
 
             // Ambil data yang akan diupdate
             $dataToUpdate = $request->only([
-                'service_id', 'scheduled_time', 'status', 'alamat', 'latitude', 'longitude', 'admin_id'
+                'service_id',
+                'scheduled_time',
+                'status',
+                'alamat',
+                'latitude',
+                'longitude',
+                'admin_id'
             ]);
 
             // Cek apakah ada perubahan yang memerlukan perhitungan ulang ongkir/total_price
@@ -323,6 +359,7 @@ class PemesananController extends Controller
                     return response()->json([
                         'status_code' => 400,
                         'message' => 'Lokasi barber tidak valid untuk perhitungan ulang.',
+                        'status_code' => 400
                     ], 400);
                 }
 
@@ -432,9 +469,10 @@ class PemesananController extends Controller
     {
         // Validasi data request
         $request->validate([
-            'status' => 'required|in:pending,in_progress,completed,cancelled', // Status yang valid
+            // Menambahkan 'paid' ke dalam daftar status yang valid
+            'status' => 'required|in:pending,confirmed,completed,cancelled,paid',
         ]);
-
+        
         try {
             // Mencari pemesanan berdasarkan ID
             $pemesanan = Pemesanan::findOrFail($id);
@@ -461,7 +499,7 @@ class PemesananController extends Controller
         }
     }
 
-     public function getAllPemesanan(Request $request)
+    public function getAllPemesanan(Request $request)
     {
         // Pastikan hanya admin yang bisa mengakses ini
         // Anda bisa menggunakan Gate/Policy Laravel atau middleware khusus 'admin'

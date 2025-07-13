@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB; 
 
 class PembayaranController extends Controller
 {
@@ -220,7 +221,7 @@ class PembayaranController extends Controller
         }
     }
 
-     public function getPembayaranByPelanggan(Request $request)
+      public function getPembayaranByPelanggan(Request $request)
     {
         try {
             $user = Auth::user(); // Mendapatkan instance user yang sedang login
@@ -281,6 +282,74 @@ class PembayaranController extends Controller
             return response()->json([
                 'status_code' => 500,
                 'message' => 'Terjadi kesalahan saat mengambil pembayaran: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+     // NEW: Metode untuk memperbarui status pembayaran saja
+    public function updateStatus(Request $request, $id)
+    {
+        // Validasi status yang diterima
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|in:pending,paid,failed',
+        ]);
+
+        if ($validator->fails()) {
+            Log::warning('PembayaranController@updateStatus: Validation failed.', ['errors' => $validator->errors()]);
+            return response()->json([
+                'message' => 'Validasi gagal',
+                'status_code' => 422,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $pembayaran = Pembayaran::findOrFail($id);
+            Log::info('PembayaranController@updateStatus: Found Pembayaran.', ['pembayaran_id' => $pembayaran->id, 'current_status' => $pembayaran->status]);
+
+            $newStatus = $request->status;
+
+            // Perbarui status
+            $pembayaran->status = $newStatus;
+
+            // Set paid_at jika status menjadi 'paid'
+            if ($newStatus === 'paid' && $pembayaran->paid_at === null) {
+                $pembayaran->paid_at = now();
+                Log::info('PembayaranController@updateStatus: Setting paid_at for payment ID.', ['pembayaran_id' => $pembayaran->id]);
+            } elseif ($newStatus !== 'paid' && $pembayaran->paid_at !== null) {
+                // Opsional: Jika status berubah dari 'paid' ke status lain, Anda mungkin ingin mengosongkan paid_at
+                // $pembayaran->paid_at = null;
+            }
+
+            $pembayaran->save();
+            Log::info('PembayaranController@updateStatus: Pembayaran status updated.', ['pembayaran_id' => $pembayaran->id, 'new_status' => $newStatus]);
+
+            // Jika pembayaran berhasil, perbarui juga status pemesanan terkait menjadi 'paid'
+            if ($newStatus === 'paid' && $pembayaran->pemesanan_id !== null) {
+                $pemesanan = Pemesanan::find($pembayaran->pemesanan_id);
+                if ($pemesanan && $pemesanan->status !== 'paid') {
+                    $pemesanan->status = 'paid';
+                    $pemesanan->save();
+                    Log::info('PembayaranController@updateStatus: Associated Pemesanan status updated to "paid".', ['pemesanan_id' => $pemesanan->id]);
+                }
+            }
+
+            return response()->json([
+                'status_code' => 200,
+                'message' => 'Status pembayaran berhasil diperbarui',
+                'data' => $pembayaran,
+            ], 200);
+        } catch (ModelNotFoundException $e) {
+            Log::error('PembayaranController@updateStatus: Pembayaran not found.', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json([
+                'status_code' => 404,
+                'message' => 'Pembayaran tidak ditemukan.'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error updating pembayaran status', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json([
+                'status_code' => 500,
+                'message' => 'Error updating pembayaran status: ' . $e->getMessage(),
             ], 500);
         }
     }

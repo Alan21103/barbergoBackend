@@ -87,4 +87,9 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasMany(Address::class, 'pelanggan_id');
     }
     
+     public function pelanggan()
+    {
+        // Asumsi: tabel 'pelanggan' memiliki foreign key 'user_id' yang merujuk ke 'id' di tabel 'users'
+        return $this->hasOne(Pelanggan::class, 'user_id');
+    }
 }
